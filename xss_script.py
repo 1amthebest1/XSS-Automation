@@ -11,16 +11,14 @@ RED = '\033[91m'
 RESET = '\033[0m'
 
 # Function to test for XSS
-async def test_xss(url, injection_point, payload, vuln_type, http_method, encoding, headers=None, cookies=None):
-    if headers is None:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36",
-            "Custom-Header": "custom value"
-        }
-    if cookies is None:
-        cookies = {
-            "session_id": "abcdef123456"
-        }
+async def test_xss(url, injection_point, payload, vuln_type, http_method, encoding):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36",
+        "Custom-Header": "custom value"
+    }
+    cookies = {
+        "session_id": "abcdef123456"
+    }
 
     # Encode payload if needed
     if encoding == "base64":
@@ -31,38 +29,22 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
         payload = html.escape(payload)
 
     try:
-        # Inject payload based on injection point type
-        if injection_point.startswith('param:'):
-            param_name = injection_point[6:]
-            parsed_url = urllib.parse.urlparse(url)
-            query_params = urllib.parse.parse_qs(parsed_url.query)
-            query_params[param_name] = [payload]
-            new_query_string = urllib.parse.urlencode(query_params, doseq=True)
-            new_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query_string))
-        elif injection_point.startswith('path:'):
-            path_segment = injection_point[5:]
-            new_url = f"{url}/{payload}"
-        elif injection_point.startswith('header:'):
-            header_name = injection_point[7:]
-            headers[header_name] = payload
-            new_url = url  # URL doesn't change for header injection
-        elif injection_point.startswith('cookie:'):
-            cookie_name = injection_point[7:]
-            cookies[cookie_name] = payload
-            new_url = url  # URL doesn't change for cookie injection
-        elif injection_point.startswith('body:'):
-            new_url = url  # URL doesn't change for body payload
-            payload = payload  # Use payload as body content
-        else:
-            raise ValueError("Invalid injection point format")
+        # Parse URL and inject payload into the specified parameter
+        parsed_url = urllib.parse.urlparse(url)
+        query_params = urllib.parse.parse_qs(parsed_url.query)
+        
+        if injection_point.startswith('?'):
+            injection_point = injection_point[1:]
+        
+        query_params[injection_point] = [payload]
+        new_query_string = urllib.parse.urlencode(query_params, doseq=True)
+        new_url = urllib.parse.urlunparse(parsed_url._replace(query=new_query_string))
 
         # Send request based on the method
         if http_method.lower() == "get":
             r = requests.get(new_url, headers=headers, cookies=cookies, auth=("user", "pass"))
         elif http_method.lower() == "post":
-            r = requests.post(new_url, headers=headers, cookies=cookies, auth=("user", "pass"), data=payload)
-        else:
-            raise ValueError("Unsupported HTTP method")
+            r = requests.post(new_url, headers=headers, cookies=cookies, auth=("user", "pass"))
 
         # Check for XSS vulnerability, ignore 403 status codes
         if r is not None and r.status_code != 403:
@@ -113,37 +95,33 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
     return r
 
 # Asynchronous scanning function
-async def scan(url, payloads, vuln_type, injection_points, http_method, encoding):
+async def scan(url, payloads, vuln_type, injection_point, http_method, encoding):
     tasks = []
-    for injection_point in injection_points:
-        for payload in payloads:
-            task = asyncio.ensure_future(test_xss(url, injection_point, payload, vuln_type, http_method, encoding))
-            tasks.append(task)
+    for payload in payloads:
+        task = asyncio.ensure_future(test_xss(url, injection_point, payload, vuln_type, http_method, encoding))
+        tasks.append(task)
     responses = await asyncio.gather(*tasks)
     return responses
 
 # Main function
-def main(url, payloads_file, vuln_type, injection_points_file, http_method, encoding):
+def main(url, payloads_file, vuln_type, injection_point, http_method, encoding):
     with open(payloads_file, "r") as f:
         payloads = f.read().splitlines()
     
-    with open(injection_points_file, "r") as f:
-        injection_points = f.read().splitlines()
-
     loop = asyncio.get_event_loop()
-    responses = loop.run_until_complete(scan(url, payloads, vuln_type, injection_points, http_method, encoding))
+    responses = loop.run_until_complete(scan(url, payloads, vuln_type, injection_point, http_method, encoding))
     return responses
 
 if __name__ == "__main__":
     if len(sys.argv) != 7:
-        print("Usage: python3 xss_scanner.py <url> <payloads_file> <vuln_type> <injection_points_file> <http_method> <encoding>")
+        print("Usage: python3 xss_scanner.py <url> <payloads_file> <vuln_type> <injection_point> <http_method> <encoding>")
         sys.exit(1)
 
     url = sys.argv[1]
     payloads_file = sys.argv[2]
     vuln_type = sys.argv[3]
-    injection_points_file = sys.argv[4]
+    injection_point = sys.argv[4]
     http_method = sys.argv[5]
     encoding = sys.argv[6]
 
-    main(url, payloads_file, vuln_type, injection_points_file, http_method, encoding)
+    main(url, payloads_file, vuln_type, injection_point, http_method, encoding)
