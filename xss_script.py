@@ -5,10 +5,31 @@ import base64
 import urllib.parse
 import html
 import re
+import warnings
+from bs4 import BeautifulSoup
 
 # ANSI escape codes for coloring the output
 RED = '\033[91m'
 RESET = '\033[0m'
+
+# Suppress SSL warnings from the requests library
+warnings.filterwarnings('ignore', category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
+# Global flag for SSL warning
+ssl_warning_shown = False
+
+# Function to display SSL warning once
+def show_ssl_warning():
+    global ssl_warning_shown
+    if not ssl_warning_shown:
+        print(f"{RED}Warning: SSL certificate verification is disabled. This can expose you to security risks.{RESET}")
+        ssl_warning_shown = True
+
+# Function to check if payload is reflected in HTML content
+def is_payload_reflected(response_text, payload):
+    # Use BeautifulSoup for better HTML parsing
+    soup = BeautifulSoup(response_text, 'html.parser')
+    return payload in soup.get_text()
 
 # Function to test for XSS
 async def test_xss(url, injection_point, payload, vuln_type, http_method, encoding):
@@ -42,34 +63,41 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
 
         # Send request based on the method
         if http_method.lower() == "get":
-            r = requests.get(new_url, headers=headers, cookies=cookies, auth=("user", "pass"))
+            show_ssl_warning()
+            r = requests.get(new_url, headers=headers, cookies=cookies, auth=("user", "pass"), verify=False)
         elif http_method.lower() == "post":
-            r = requests.post(new_url, headers=headers, cookies=cookies, auth=("user", "pass"))
+            show_ssl_warning()
+            r = requests.post(new_url, headers=headers, cookies=cookies, auth=("user", "pass"), verify=False)
 
         # Check for XSS vulnerability, ignore 403 status codes
         if r is not None and r.status_code != 403:
-            content = r.text.lower()
+            content_type = r.headers.get('Content-Type', '')
+            if 'html' in content_type.lower():
+                content = r.text.lower()
 
-            # Nuclei-like matchers for XSS
-            script_check = re.compile(r'<script\b[^>]*>([\s\S]*?)</script>', re.IGNORECASE)
-            iframe_check = re.compile(r'<iframe\b[^>]*src=["\']?javascript:', re.IGNORECASE)
-            matcher_check = re.compile(r'javascript:.*?(alert|prompt|confirm)\(', re.IGNORECASE)
-            inline_js_check = re.compile(r'<script\b[^>]*>([\s\S]*?)alert\(', re.IGNORECASE)
-            eval_check = re.compile(r'eval\(', re.IGNORECASE)
-            onerror_check = re.compile(r'onerror\s*=', re.IGNORECASE)
-            onload_check = re.compile(r'onload\s*=', re.IGNORECASE)
-            document_write_check = re.compile(r'document\.write\(', re.IGNORECASE)
-            xss_indicators = [script_check, iframe_check, matcher_check, inline_js_check, eval_check, onerror_check, onload_check, document_write_check]
-            
-            # Check if content contains known XSS patterns
-            if any(regex.search(content) for regex in xss_indicators):
-                # Further checks to reduce false positives
-                if any(content.find(payload) != -1 for payload in [payload, payload.lower()]):
-                    print(f"{RED}XSS VULNERABILITY FOUND: {new_url}{RESET}")
+                # Nuclei-like matchers for XSS
+                xss_patterns = [
+                    re.compile(r'<script\b[^>]*>([\s\S]*?)</script>', re.IGNORECASE),
+                    re.compile(r'<iframe\b[^>]*src=["\']?javascript:', re.IGNORECASE),
+                    re.compile(r'javascript:.*?(alert|prompt|confirm)\(', re.IGNORECASE),
+                    re.compile(r'<script\b[^>]*>([\s\S]*?)alert\(', re.IGNORECASE),
+                    re.compile(r'eval\(', re.IGNORECASE),
+                    re.compile(r'onerror\s*=', re.IGNORECASE),
+                    re.compile(r'onload\s*=', re.IGNORECASE),
+                    re.compile(r'document\.write\(', re.IGNORECASE)
+                ]
+                
+                # Check if content contains known XSS patterns
+                if any(pattern.search(content) for pattern in xss_patterns):
+                    # Further checks to reduce false positives
+                    if is_payload_reflected(r.text, payload):
+                        print(f"{RED}XSS VULNERABILITY FOUND: {new_url}{RESET}")
+                    else:
+                        print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
                 else:
                     print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
             else:
-                print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
+                print(f"Response from {new_url} is not HTML, skipping XSS checks.")
 
         else:
             print(f"Request to {new_url} resulted in status code 403, skipping.")
