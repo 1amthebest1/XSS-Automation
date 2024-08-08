@@ -48,44 +48,29 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
 
         # Check for XSS vulnerability, ignore 403 status codes
         if r is not None and r.status_code != 403:
-            if vuln_type == "reflected":
-                content = r.text.lower()
-                
-                # Matchers used by Nuclei templates
-                script_check = re.compile(r'<script\b[^>]*>([\s\S]*?)</script>', re.IGNORECASE)
-                iframe_check = re.compile(r'<iframe\b[^>]*src=["\']?javascript:', re.IGNORECASE)
-                matcher_check = re.compile(r'javascript:.*?(alert|prompt|confirm)\(', re.IGNORECASE)
-                
-                # Additional Nuclei-like matchers without look-behind
-                inline_js_check = re.compile(r'<script\b[^>]*>([\s\S]*?)alert\(', re.IGNORECASE)
-                eval_check = re.compile(r'eval\(', re.IGNORECASE)
-                onerror_check = re.compile(r'onerror\s*=', re.IGNORECASE)
-                onload_check = re.compile(r'onload\s*=', re.IGNORECASE)
-                document_write_check = re.compile(r'document\.write\(', re.IGNORECASE)
-                
-                # Combined check for known XSS patterns
-                if (script_check.search(content) or
-                    iframe_check.search(content) or
-                    matcher_check.search(content) or
-                    inline_js_check.search(content) or
-                    eval_check.search(content) or
-                    onerror_check.search(content) or
-                    onload_check.search(content) or
-                    document_write_check.search(content)):
+            content = r.text.lower()
 
-                    # Further checks to avoid false positives
-                    if (r.text.find(payload) == -1):  # Ensure payload isn't just present as part of normal content
-                        print(f"{RED}XSS VULNERABILITY FOUND: {new_url}{RESET}")
-                    else:
-                        print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
+            # Nuclei-like matchers for XSS
+            script_check = re.compile(r'<script\b[^>]*>([\s\S]*?)</script>', re.IGNORECASE)
+            iframe_check = re.compile(r'<iframe\b[^>]*src=["\']?javascript:', re.IGNORECASE)
+            matcher_check = re.compile(r'javascript:.*?(alert|prompt|confirm)\(', re.IGNORECASE)
+            inline_js_check = re.compile(r'<script\b[^>]*>([\s\S]*?)alert\(', re.IGNORECASE)
+            eval_check = re.compile(r'eval\(', re.IGNORECASE)
+            onerror_check = re.compile(r'onerror\s*=', re.IGNORECASE)
+            onload_check = re.compile(r'onload\s*=', re.IGNORECASE)
+            document_write_check = re.compile(r'document\.write\(', re.IGNORECASE)
+            xss_indicators = [script_check, iframe_check, matcher_check, inline_js_check, eval_check, onerror_check, onload_check, document_write_check]
+            
+            # Check if content contains known XSS patterns
+            if any(regex.search(content) for regex in xss_indicators):
+                # Further checks to reduce false positives
+                if any(content.find(payload) != -1 for payload in [payload, payload.lower()]):
+                    print(f"{RED}XSS VULNERABILITY FOUND: {new_url}{RESET}")
                 else:
                     print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
-
-            elif vuln_type == "persistent":
-                # Implement persistent XSS logic if needed
-                pass
             else:
-                print(f"Invalid vulnerability type: {vuln_type}")
+                print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
+
         else:
             print(f"Request to {new_url} resulted in status code 403, skipping.")
 
