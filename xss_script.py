@@ -58,11 +58,54 @@ def is_payload_reflected(response_text, payload):
     # Check if payload is reflected directly or as part of HTML attributes
     return payload.lower() in text or any(payload.lower() in tag.get('href', '').lower() for tag in soup.find_all())
 
+# Function to perform additional checks
+async def additional_check(url, injection_point, payload, http_method):
+    print(f"Running additional checks for {url} with payload: {payload}")
+    # Placeholder for additional check logic
+    # Implement advanced response analysis or checks here
+
+# Function to use Selenium for advanced XSS testing
+def selenium_check(url, payload):
+    options = Options()
+    options.add_argument('--headless')  # Run in headless mode
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    try:
+        driver.get(url)
+        # Inject payload to dynamically check for alert box
+        script = f"""
+        var payload = `{payload}`;
+        var scriptTag = document.createElement('script');
+        scriptTag.text = `try {{ eval(payload); }} catch (e) {{ console.log("Error:", e); }} `;
+        document.body.appendChild(scriptTag);
+        """
+        driver.execute_script(script)
+
+        # Check for alert box
+        alert_triggered = False
+        try:
+            alert = driver.switch_to.alert
+            alert_text = alert.text
+            print(f"{RED}Alert box detected with text: {alert_text}{RESET}")
+            alert.accept()
+            alert_triggered = True
+        except Exception as e:
+            print(f"No alert detected: {e}")
+        
+        if alert_triggered:
+            print(f"{RED}XSS VULNERABILITY FOUND (Selenium): {url}{RESET}")
+        else:
+            print(f"No XSS vulnerability found (Selenium) at {url} with payload: {payload}")
+    finally:
+        driver.quit()
+
 # Function to analyze response for XSS
 def analyze_response(response_text, payload):
     # Normalize content
-    normalized_content = html.unescape(response_text.lower())
-    
+    normalized_content = response_text.lower()
+
     # XSS detection patterns
     xss_patterns = [
         re.compile(r'<script\b[^>]*>([\s\S]*?)<\/script>', re.IGNORECASE),
@@ -78,61 +121,15 @@ def analyze_response(response_text, payload):
         re.compile(r'<img\b[^>]*src=["\']?data:image', re.IGNORECASE),
         re.compile(r'<svg\b[^>]*onload\s*=', re.IGNORECASE),
         re.compile(r'<meta\b[^>]*http-equiv=["\']refresh', re.IGNORECASE),
-        re.compile(r'base64,[^\'"<>]*?alert\(', re.IGNORECASE)
+        re.compile(r'base64,[^\'"<>]*?alert\(', re.IGNORECASE),
+        re.compile(r'\bconsole\.log\b', re.IGNORECASE),
+        re.compile(r'\beval\s*\(', re.IGNORECASE),
+        re.compile(r'(<|%3C)script(>|%3E)', re.IGNORECASE),
+        re.compile(r'(<|%3C)iframe(>|%3E)', re.IGNORECASE)
     ]
 
     # Check if content contains known XSS patterns
     return any(pattern.search(normalized_content) for pattern in xss_patterns)
-
-# Function to use Selenium for advanced XSS testing
-def selenium_check(url, payload):
-    options = Options()
-    options.add_argument('--headless')  # Run in headless mode
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    try:
-        driver.get(url)
-        
-        # Inject payload to dynamically check for alert box
-        script = f"""
-        var payload = `{payload}`;
-        var scriptTag = document.createElement('script');
-        scriptTag.text = `try {{ eval(payload); }} catch (e) {{ console.log("Error:", e); }} `;
-        document.body.appendChild(scriptTag);
-        """
-        driver.execute_script(script)
-
-        # Wait for potential alerts
-        driver.implicitly_wait(5)  # Adjust wait time as needed
-
-        alert_triggered = False
-        try:
-            # Switch to alert if it appears
-            alert = driver.switch_to.alert
-            alert_text = alert.text
-            print(f"{RED}Alert box detected with text: {alert_text}{RESET}")
-            alert.accept()  # Close the alert
-            alert_triggered = True
-        except Exception as e:
-            print(f"No alert detected: {e}")
-
-        # Check for other XSS indicators
-        # Note: You can add more checks here if needed
-        
-        if alert_triggered:
-            print(f"{RED}XSS VULNERABILITY FOUND (Selenium): {url}{RESET}")
-        else:
-            print(f"No XSS vulnerability found (Selenium) at {url} with payload: {payload}")
-    finally:
-        driver.quit()
-
-# Function to perform additional checks
-async def additional_check(url, injection_point, payload, http_method):
-    print(f"Running additional checks for {url} with payload: {payload}")
-    # Placeholder for additional check logic
-    # Implement advanced response analysis or checks here
 
 # Function to test for XSS
 async def test_xss(url, injection_point, payload, vuln_type, http_method, encoding):
@@ -219,7 +216,7 @@ def main(url, payloads_file, vuln_type, injection_point, http_method, encoding):
 
 if __name__ == "__main__":
     if len(sys.argv) != 7:
-        print("Usage: python3 xss_script.py <url> <payloads_file> <vuln_type> <injection_point> <http_method> <encoding>")
+        print("Usage: python xss_test.py <url> <payloads_file> <vuln_type> <injection_point> <http_method> <encoding>")
         sys.exit(1)
 
     url = sys.argv[1]
