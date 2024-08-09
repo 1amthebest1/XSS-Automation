@@ -10,7 +10,7 @@ python3 xss_script.py "https://(target)" xss_payloads.txt reflected (parameter) 
 
 https://github.com/EmperialX/XSS-Automation-Tool
 
-Look out for false positives 
+Look out for false positives, and negatives
 
 This is just improved version of /EmperialX/XSS-Automation-Tool , updated to python3, and more 
 
