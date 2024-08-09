@@ -3,7 +3,9 @@ WOULD WORK FOR REFLECTED ONLY, I HAVE NOT IMPLEMENTED NOR TESTED THE PERSISTENT
 USAGE :
 
 python3 xss_script.py "https://(target)" xss_payloads.txt reflected (parameter) get url
+
 python3 xss_script.py "https://(target)" xss_payloads.txt reflected (parameter) get html
+
 python3 xss_script.py "https://(target)" xss_payloads.txt reflected (parameter) get base64
 
 https://github.com/EmperialX/XSS-Automation-Tool
