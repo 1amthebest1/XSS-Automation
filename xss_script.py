@@ -6,6 +6,7 @@ import urllib.parse
 import html
 import re
 import warnings
+import time
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -170,7 +171,11 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
             r = requests.post(new_url, headers=headers, cookies=cookies, auth=("user", "pass"), verify=False)
 
         # Check for XSS vulnerability, ignoring 403 status codes
-        if r is not None and r.status_code != 403:
+        if r is not None:
+            if r.status_code == 403:
+                print(f"Request to {new_url} resulted in status code 403, skipping.")
+                return
+
             content_type = r.headers.get('Content-Type', '')
             if 'html' in content_type.lower():
                 if analyze_response(r.text, payload):
@@ -185,11 +190,14 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
                     print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
             else:
                 print(f"Response from {new_url} is not HTML, skipping XSS checks.")
+            
         else:
-            print(f"Request to {new_url} resulted in status code {r.status_code}, skipping.")
+            print(f"Request to {new_url} failed.")
 
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
     except Exception as e:
-        print(f"Error occurred: {e}")
+        print(f"General error occurred: {e}")
 
     # Use Selenium for advanced XSS checking
     selenium_check(url, payload)
