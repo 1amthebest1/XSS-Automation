@@ -52,18 +52,50 @@ def decode_payload(payload, encoding):
     else:
         raise ValueError("Unsupported encoding type")
 
-# Function to check if payload is reflected in HTML content
+# Function to refine XSS patterns to avoid false positives
 def is_payload_reflected(response_text, payload):
     soup = BeautifulSoup(response_text, 'html.parser')
     text = soup.get_text().lower()
     # Check if payload is reflected directly or as part of HTML attributes
-    return payload.lower() in text or any(payload.lower() in tag.get('href', '').lower() for tag in soup.find_all())
+    reflected = payload.lower() in text or any(payload.lower() in tag.get('href', '').lower() for tag in soup.find_all())
+    # Avoid false positives by excluding benign script tags
+    for tag in soup.find_all(['pre', 'code']):
+        if payload.lower() in tag.get_text().lower():
+            reflected = False
+    return reflected
+
+# Function to improve response analysis
+def analyze_response(response_text, payload):
+    # Normalize content
+    normalized_content = html.unescape(response_text.lower())
+    
+    # XSS detection patterns
+    xss_patterns = [
+        re.compile(r'<script\b[^>]*>([\s\S]*?)<\/script>', re.IGNORECASE),
+        re.compile(r'<iframe\b[^>]*src=["\']?javascript:', re.IGNORECASE),
+        re.compile(r'javascript:.*?(alert|prompt|confirm|eval|onerror|onload|innerhtml|document\.write|srcdoc)', re.IGNORECASE),
+        re.compile(r'document\.cookie', re.IGNORECASE),
+        re.compile(r'window\.location\=', re.IGNORECASE),
+        re.compile(r'setTimeout\s*\(', re.IGNORECASE),
+        re.compile(r'setInterval\s*\(', re.IGNORECASE),
+        re.compile(r'function\s+\w+\s*\(', re.IGNORECASE),
+        re.compile(r'\balert\s*\(', re.IGNORECASE),
+        re.compile(r'\beval\s*\(', re.IGNORECASE),
+        re.compile(r'<img\b[^>]*src=["\']?data:image', re.IGNORECASE),
+        re.compile(r'<svg\b[^>]*onload\s*=', re.IGNORECASE),
+        re.compile(r'<meta\b[^>]*http-equiv=["\']refresh', re.IGNORECASE),
+        re.compile(r'base64,[^\'"<>]*?alert\(', re.IGNORECASE)
+    ]
+
+    # Check if content contains known XSS patterns
+    return any(pattern.search(normalized_content) for pattern in xss_patterns)
 
 # Function to perform additional checks
 async def additional_check(url, injection_point, payload, http_method):
     print(f"Running additional checks for {url} with payload: {payload}")
-    # Placeholder for additional check logic
+    # Example additional checks
     # Implement advanced response analysis or checks here
+    pass
 
 # Function to use Selenium for advanced XSS testing
 def selenium_check(url, payload):
@@ -101,36 +133,6 @@ def selenium_check(url, payload):
             print(f"No XSS vulnerability found (Selenium) at {url} with payload: {payload}")
     finally:
         driver.quit()
-
-# Function to analyze response for XSS
-def analyze_response(response_text, payload):
-    # Normalize content
-    normalized_content = response_text.lower()
-
-    # XSS detection patterns
-    xss_patterns = [
-        re.compile(r'<script\b[^>]*>([\s\S]*?)<\/script>', re.IGNORECASE),
-        re.compile(r'<iframe\b[^>]*src=["\']?javascript:', re.IGNORECASE),
-        re.compile(r'javascript:.*?(alert|prompt|confirm|eval|onerror|onload|innerhtml|document\.write|srcdoc)', re.IGNORECASE),
-        re.compile(r'document\.cookie', re.IGNORECASE),
-        re.compile(r'window\.location\=', re.IGNORECASE),
-        re.compile(r'setTimeout\s*\(', re.IGNORECASE),
-        re.compile(r'setInterval\s*\(', re.IGNORECASE),
-        re.compile(r'function\s+\w+\s*\(', re.IGNORECASE),
-        re.compile(r'\balert\s*\(', re.IGNORECASE),
-        re.compile(r'\beval\s*\(', re.IGNORECASE),
-        re.compile(r'<img\b[^>]*src=["\']?data:image', re.IGNORECASE),
-        re.compile(r'<svg\b[^>]*onload\s*=', re.IGNORECASE),
-        re.compile(r'<meta\b[^>]*http-equiv=["\']refresh', re.IGNORECASE),
-        re.compile(r'base64,[^\'"<>]*?alert\(', re.IGNORECASE),
-        re.compile(r'\bconsole\.log\b', re.IGNORECASE),
-        re.compile(r'\beval\s*\(', re.IGNORECASE),
-        re.compile(r'(<|%3C)script(>|%3E)', re.IGNORECASE),
-        re.compile(r'(<|%3C)iframe(>|%3E)', re.IGNORECASE)
-    ]
-
-    # Check if content contains known XSS patterns
-    return any(pattern.search(normalized_content) for pattern in xss_patterns)
 
 # Function to test for XSS
 async def test_xss(url, injection_point, payload, vuln_type, http_method, encoding):
@@ -170,12 +172,11 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
             show_ssl_warning()
             r = requests.post(new_url, headers=headers, cookies=cookies, auth=("user", "pass"), verify=False)
 
-        # Check for XSS vulnerability, ignoring 403 status codes
-        if r is not None:
-            if r.status_code == 403:
-                print(f"Request to {new_url} resulted in status code 403, skipping.")
-                return
+        # Rate limiting to avoid server blocking
+        time.sleep(1)
 
+        # Check for XSS vulnerability, ignoring 403 status codes
+        if r is not None and r.status_code != 403:
             content_type = r.headers.get('Content-Type', '')
             if 'html' in content_type.lower():
                 if analyze_response(r.text, payload):
@@ -190,14 +191,11 @@ async def test_xss(url, injection_point, payload, vuln_type, http_method, encodi
                     print(f"No XSS vulnerability found at {new_url} with payload: {payload}")
             else:
                 print(f"Response from {new_url} is not HTML, skipping XSS checks.")
-            
         else:
-            print(f"Request to {new_url} failed.")
+            print(f"Request to {new_url} resulted in status code {r.status_code}, skipping.")
 
-    except requests.exceptions.RequestException as e:
-        print(f"Request error: {e}")
     except Exception as e:
-        print(f"General error occurred: {e}")
+        print(f"Error occurred: {e}")
 
     # Use Selenium for advanced XSS checking
     selenium_check(url, payload)
@@ -224,7 +222,7 @@ def main(url, payloads_file, vuln_type, injection_point, http_method, encoding):
 
 if __name__ == "__main__":
     if len(sys.argv) != 7:
-        print("Usage: python xss_test.py <url> <payloads_file> <vuln_type> <injection_point> <http_method> <encoding>")
+        print("Usage: python xss_script.py <url> <payloads_file> <vuln_type> <injection_point> <http_method> <encoding>")
         sys.exit(1)
 
     url = sys.argv[1]
@@ -234,4 +232,11 @@ if __name__ == "__main__":
     http_method = sys.argv[5]
     encoding = sys.argv[6]
 
+    # Validate encoding
+    valid_encodings = ["base64", "url", "html", "none"]
+    if encoding not in valid_encodings:
+        print(f"Invalid encoding type. Supported types: {', '.join(valid_encodings)}")
+        sys.exit(1)
+
+    # Run the main function
     main(url, payloads_file, vuln_type, injection_point, http_method, encoding)
