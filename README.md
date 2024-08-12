@@ -2,6 +2,8 @@ WOULD WORK FOR REFLECTED ONLY, I HAVE NOT IMPLEMENTED NOR TESTED THE PERSISTENT
 
 USAGE :
 
+pip install webdriver-manager
+
 python3 xss_script.py "https://(target)" xss_payloads.txt reflected (parameter) get url
 
 python3 xss_script.py "https://(target)" xss_payloads.txt reflected (parameter) get html
